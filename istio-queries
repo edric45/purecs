@@ -1,0 +1,52 @@
+Queries from Application team that support available in ISTIO addon.
+
+ 
+
+ 
+
+Infra setup checklist — Istio ambient, namespace-by-namespace enablement
+
+ 
+
+Install (one-time)
+- Install Istio ambient profile — istiod + ztunnel DaemonSet (all nodes) + istio-cni
+- Do not deploy sidecar-injection; no istio-injection labels anywhere
+- Confirm Gateway API CRDs v1 exist and are owned by Envoy Gateway (Istio ships none — don't add conflicting ones)
+- Ensure istio-waypoint GatewayClass is registered, and istiod's Gateway deployment controller is enabled
+- Keep istio-cni excluded namespaces to only kube-system and istio-system
+- Leave ambient.dnsCapture: true (default) enabled
+- Do not apply any cluster-wide AuthorizationPolicy, PeerAuthentication (leave PERMISSIVE), or root-namespace Telemetry
+- Do not manage/overwrite the istio.io/dataplane-mode namespace label — that stays ours
+
+ 
+
+CA / identity
+- State the CA mode (istiod self-signed, cert-manager-istio-csr, or plug-in), trust domain = cluster.local, and workload cert lifetime = 24h
+- If using istio-csr: include istio-system/ztunnel in caTrustedNodeAccounts
+- Confirm workload cert issuance + rotation is working and monitored
+
+ 
+
+Waypoint support
+- Apply the istio-waypoint defaults ConfigMap in istio-system (key gateway.istio.io/defaults-for-class: istio-waypoint): HPA min 2 / max 5 @ 70% CPU, PDB minAvailable: 1, resources 300m/512Mi → 3/2Gi
+- Ensure metrics-server is installed (waypoint HPA needs it)
+- Don't strip Prometheus scrape annotations (prometheus.io/scrape, :15020, /stats/prometheus) from generated waypoint pods
+
+ 
+
+Telemetry
+- Keep ztunnel :15020 metrics scrapeable (prometheus.io annotations intact) — we scrape into SigNoz
+
+ 
+
+RBAC (grant to our pipeline service connection)
+- In our app namespaces: create/update/delete AuthorizationPolicy, Telemetry, Gateway (class istio-waypoint); label namespaces (istio.io/dataplane-mode, istio.io/use-waypoint)
+- In istio-system: read ztunnel metrics (or provide scrape path), create ServiceEntry later
+- Read access: pods, logs, events
+
+ 
+
+Operations
+- Give us the addon change/upgrade notice (we byte-compare pinned renders)
+- Roll out istio-cni to nodes canaried/progressively, not all-at-once
+
