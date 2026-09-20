@@ -1,0 +1,57 @@
+# Checklist item:
+#   "Apply the istio-waypoint defaults ConfigMap in istio-system
+#    (key gateway.istio.io/defaults-for-class: istio-waypoint):
+#    HPA min 2 / max 5 @ 70% CPU, PDB minAvailable: 1,
+#    resources 300m/512Mi -> 3/2Gi"
+#
+# Istio reads a ConfigMap in the root namespace carrying this label and applies
+# its contents as strategic merge patches to every Gateway it generates for
+# that class. Valid keys: service, deployment, serviceAccount,
+# horizontalPodAutoscaler, podDisruptionBudget.
+#
+# The add-on has no values for HPA or PDB, and a ytt overlay cannot patch the
+# waypoint Deployment directly: istiod generates it at runtime, so it carries
+# no kapp label and is never part of the package render. Adding this ConfigMap
+# for istiod to read is the route that works.
+#
+# This file is a plain manifest, not an overlay patch -- ytt emits every
+# non-annotated YAML document in its input set, so the object joins the
+# package's managed set and kapp owns it.
+#
+# Verified on this cluster: istiod created both the HPA and the PDB, and the
+# waypoint scaled from 1 to 2 replicas on its own.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: istio-waypoint-defaults
+  namespace: istio-system
+  labels:
+    gateway.istio.io/defaults-for-class: istio-waypoint
+data:
+  horizontalPodAutoscaler: |
+    spec:
+      minReplicas: 2
+      maxReplicas: 5
+      metrics:
+      - type: Resource
+        resource:
+          name: cpu
+          target:
+            type: Utilization
+            averageUtilization: 70
+  podDisruptionBudget: |
+    spec:
+      minAvailable: 1
+  deployment: |
+    spec:
+      template:
+        spec:
+          containers:
+          - name: istio-proxy
+            resources:
+              requests:
+                cpu: 300m
+                memory: 512Mi
+              limits:
+                cpu: "3"
+                memory: 2Gi

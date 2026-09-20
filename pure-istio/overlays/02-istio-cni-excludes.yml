@@ -1,0 +1,23 @@
+#@ load("@ytt:overlay", "overlay")
+
+#! Checklist item:
+#!   "Keep istio-cni excluded namespaces to only kube-system and istio-system"
+#!
+#! The add-on exposes only istioCNI.enabled and istioCNI.resources -- there is
+#! no excludeNamespaces value at any level (0 hits across the whole schema).
+#! As shipped the ConfigMap contains only "kube-system".
+#!
+#! Unlike the waypoint, istio-cni-config IS part of the package render and
+#! carries the package's kapp label, so it can be patched by a real ytt
+#! overlay rather than replaced. This is the difference between the two overlay
+#! modes: adding a new object needs no ytt syntax; patching an existing one
+#! needs a matcher.
+#!
+#! Pods in an excluded namespace are never given redirection rules, so they
+#! cannot join the mesh regardless of labels.
+
+#@overlay/match by=overlay.subset({"kind":"ConfigMap","metadata":{"name":"istio-cni-config"}})
+---
+data:
+  #@overlay/match missing_ok=True
+  EXCLUDE_NAMESPACES: kube-system,istio-system

@@ -1,0 +1,32 @@
+# Plug-in CA for Istio, issued and rotated by cert-manager.
+#
+# Checklist item: "State the CA mode (istiod self-signed, cert-manager-istio-csr,
+# or plug-in)". This is the plug-in mode, with cert-manager owning the
+# intermediate rather than a human pasting one in.
+#
+# istiod reads a Secret named exactly "cacerts" in istio-system and uses it as
+# its signing CA. No add-on setting is involved -- the add-on exposes no CA
+# options at all; this works because istiod looks for the Secret directly.
+#
+# se-selfsigned is the ca-type ClusterIssuer the cert-manager add-on bootstraps
+# via its issuers[] value. In production this would be replaced by an Issuer
+# backed by the corporate PKI or Vault; nothing else here changes.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: istio-ca
+  namespace: istio-system
+spec:
+  isCA: true
+  commonName: istio-ca
+  secretName: istio-ca-keypair        # cert-manager's own key names live here
+  duration: 43800h                    # 5y
+  renewBefore: 8760h                  # 1y
+  privateKey:
+    algorithm: RSA
+    size: 4096
+    encoding: PKCS8
+  issuerRef:
+    name: se-selfsigned
+    kind: ClusterIssuer
+    group: cert-manager.io

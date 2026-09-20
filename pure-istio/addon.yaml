@@ -1,0 +1,71 @@
+# Istio 1.28.2, ambient mode — configured against the application team's
+# infra setup checklist.
+#
+# Each value below maps to a line in that checklist. Items the add-on cannot
+# express are handled in overlays/ or recorded in CHECKLIST.md as unsupported.
+apiVersion: addons.kubernetes.vmware.com/v1alpha1
+kind: AddonConfig
+metadata:
+  name: se-cluster-01-istio
+  namespace: se-namespace
+spec:
+  values:
+    istio:
+      # "Install Istio ambient profile — istiod + ztunnel DaemonSet (all nodes)
+      #  + istio-cni"
+      ambientMode:
+        enabled: true
+      istioCNI:
+        enabled: true
+
+      # "Do not apply any cluster-wide ... PeerAuthentication (leave PERMISSIVE)"
+      # enableStrictMTLS would create a mesh-wide STRICT PeerAuthentication in
+      # istio-system. Left false so the mesh stays PERMISSIVE.
+      enableStrictMTLS: false
+
+      # "Do not deploy sidecar-injection; no istio-injection labels anywhere"
+      # The add-on's ingress/egress gateways are sidecar-mode
+      # (sidecar.istio.io/inject=true, istio.io/dataplane-mode=none), so both
+      # are left off. North-south uses a Gateway API Gateway with
+      # gatewayClassName istio, which participates in ambient.
+      gateways:
+        ingress:
+          enabled: false
+        egress:
+          enabled: false
+
+      pilot:
+        replicas: 2
+
+      meshConfig:
+        # "trust domain = cluster.local"
+        trustDomain: cluster.local
+        # "Keep ztunnel :15020 metrics scrapeable" — merge keeps the Prometheus
+        # annotations on generated pods rather than stripping them.
+        enablePrometheusMerge: true
+        accessLogFile: /dev/stdout
+        # Waypoint container resources are NOT set here. The checklist asks for
+        # them in the defaults ConfigMap alongside HPA and PDB, so they are set
+        # there instead — one owner per setting.
+---
+apiVersion: addons.kubernetes.vmware.com/v1alpha1
+kind: AddonInstall
+metadata:
+  name: se-cluster-01-istio
+  namespace: se-namespace
+spec:
+  addonRef:
+    name: istio
+  addonConfigNameTemplate: se-cluster-01-istio
+  clusters:
+  - selector:
+      matchLabels:
+        cluster.x-k8s.io/cluster-name: se-cluster-01
+  crossNamespaceSelection: Blocked
+  # "Give us the addon change/upgrade notice (we byte-compare pinned renders)"
+  # An exact release pin means upgrades are always an explicit commit here,
+  # never automatic.
+  releaseFilter:
+    ref:
+      name: istio.kubernetes.vmware.com.1.28.2-vmware.1-vks.1
+  stopMatchingBehavior: Delete
