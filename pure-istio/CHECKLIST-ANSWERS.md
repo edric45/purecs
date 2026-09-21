@@ -57,14 +57,57 @@ $ kubectl get ns -l istio-injection
 No resources found
 ```
 
-Two things to be aware of. Ambient mode does not inject sidecars into
-workloads, so nothing is required to satisfy this for applications. However the
-add-on **can** install a classic `istio-ingressgateway` via
-`gateways.ingress.enabled`, and that component *is* sidecar-mode
-(`sidecar.istio.io/inject: true`, `istio.io/dataplane-mode: none`). It is
-disabled in [`addon.yaml`](addon.yaml) for exactly this reason. North-south
-should use a Gateway API `Gateway` with `gatewayClassName: istio`, which
-participates in ambient instead.
+Ambient mode does not inject sidecars into workloads, so nothing is required to
+satisfy this for applications.
+
+The one component to watch is the classic `istio-ingressgateway`, which the
+add-on installs if `gateways.ingress.enabled` is `true`. Its pods carry
+`sidecar.istio.io/inject: true`. It is disabled in [`addon.yaml`](addon.yaml)
+so that no sidecar-injected pod exists anywhere.
+
+**Disabling it does not cost you the Gateway API.** The GatewayClasses are
+registered by istiod itself, not by the ingress gateway install. Verified with
+`gateways.ingress.enabled: false`:
+
+```
+$ kubectl get ns istio-ingress
+Error from server (NotFound): namespaces "istio-ingress" not found
+
+$ kubectl get pods -A -l app=istio-ingressgateway
+No resources found
+
+$ kubectl get gatewayclass
+NAME             CONTROLLER                    ACCEPTED
+istio            istio.io/gateway-controller   True
+istio-remote     istio.io/unmanaged-gateway    True
+istio-waypoint   istio.io/mesh-controller      True
+```
+
+Creating a `Gateway` with `gatewayClassName: istio` then makes istiod generate
+the Deployment and Service on demand, and the Service takes a VIP from NSX ALB:
+
+```
+$ kubectl -n <ns> get gateway public
+NAME     CLASS   ADDRESS        PROGRAMMED
+public   istio   172.x.x.x      True
+
+$ kubectl -n <ns> get deploy,svc
+deployment.apps/public-istio   1/1
+service/public-istio           LoadBalancer   172.x.x.x   15021:30088/TCP,80:32419/TCP
+```
+
+So you do **not** need Envoy Gateway, and you do **not** need the classic
+gateway, for north-south traffic.
+
+> **Both gateway types sit outside ambient.** The generated Gateway API pod
+> carries `istio.io/dataplane-mode: none` and `sidecar.istio.io/inject: false`
+> — it is a standalone gateway proxy, not a ztunnel-captured workload. It holds
+> a SPIFFE identity and reaches backends over mTLS, but like the classic
+> gateway it **bypasses the waypoint by default**. To route north-south traffic
+> through a waypoint so that L7 `AuthorizationPolicy` applies to external
+> callers, label the backing Service `istio.io/ingress-use-waypoint=true`.
+> Without it, an L7 policy is enforced for in-mesh callers and silently not
+> enforced for traffic arriving through the gateway.
 
 ### Confirm Gateway API CRDs v1 exist and are owned by Envoy Gateway — **Differs**
 
